@@ -5,7 +5,7 @@ import Calendar from './Calendar';
 import EventList from './EventList';
 import { CalendarEvent } from '../utils/csvParser';
 import { saveEvents } from '../app/actions';
-import { Panel, Group, Separator } from 'react-resizable-panels';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 
 interface SerializableCalendarEvent {
     date: string;
@@ -159,7 +159,7 @@ export default function CalendarLayout({ initialEvents }: CalendarLayoutProps) {
 
                 {/* MAIN CONTENT AREA */}
                 <div className="flex-1 w-full h-full relative bg-[#2b6cb0]">
-                    <Group orientation="horizontal" className="h-full w-full">
+                    <PanelGroup direction="horizontal" className="h-full w-full">
 
                         {/* LEFT PANEL: IMAGE + FOOTER */}
                         <Panel defaultSize={45} minSize={25} collapsible={false} className="bg-[#2b6cb0]">
@@ -198,14 +198,14 @@ export default function CalendarLayout({ initialEvents }: CalendarLayoutProps) {
                         </Panel>
 
                         {/* SPLITTER: Blue Background (Invisible, just spacing) */}
-                        <Separator className="w-1 bg-[#2b6cb0] hover:bg-blue-400 transition-colors cursor-col-resize z-50" />
+                        <PanelResizeHandle className="w-1 bg-[#2b6cb0] hover:bg-blue-400 transition-colors cursor-col-resize z-50" />
 
                         {/* RIGHT PANEL: CALENDAR/DATA + FOOTER */}
                         <Panel minSize={30} collapsible={false} className="bg-[#2b6cb0]">
                             <div className="h-full w-full flex flex-col">
                                 {/* Upper Right Group */}
                                 <div className="flex-1 w-full flex flex-col overflow-hidden">
-                                    <Group orientation="vertical">
+                                    <PanelGroup direction="vertical">
 
                                         {/* CALENDAR */}
                                         <Panel defaultSize={60} minSize={40} collapsible={false} className="bg-[#2b6cb0]">
@@ -226,7 +226,7 @@ export default function CalendarLayout({ initialEvents }: CalendarLayoutProps) {
                                         </Panel>
 
                                         {/* SPLITTER */}
-                                        <Separator className="h-1 bg-[#2b6cb0] hover:bg-blue-400 transition-colors cursor-row-resize z-50" />
+                                        <PanelResizeHandle className="h-1 bg-[#2b6cb0] hover:bg-blue-400 transition-colors cursor-row-resize z-50" />
 
                                         {/* DATA ENTRY */}
                                         <Panel minSize={20} collapsible={false} className="bg-[#2b6cb0]">
