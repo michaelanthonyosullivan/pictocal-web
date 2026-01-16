@@ -42,11 +42,41 @@ const getWeekNumber = (d: Date) => {
   return Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 };
 
+// --- ICONS (SVG) ---
+// --- ICONS (SVG) ---
+const ChevronLeft = () => (
+  <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-green-900 hover:text-green-700">
+    <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const ChevronRight = () => (
+  <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-green-900 hover:text-green-700">
+    <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const DoubleChevronLeft = () => (
+  <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6 text-green-900 hover:text-green-700">
+    {/* Adjusted for lighter stroke to look 'touching' */}
+    <path d="M18.5 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M11.5 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const DoubleChevronRight = () => (
+  <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6 text-green-900 hover:text-green-700">
+    <path d="M5.5 6l6 6-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M12.5 6l6 6-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
 // --- MAIN COMPONENT ---
 
 export default function PictocalApp() {
   // --- STATE ---
   const [currentDate, setCurrentDate] = useState(new Date());
+
   const [selectedDay, setSelectedDay] = useState(new Date().getDate());
 
   const [noteText, setNoteText] = useState("");
@@ -166,10 +196,10 @@ export default function PictocalApp() {
     }
   };
 
-  const changeMonth = (offset: number) => {
+  const changeMonth = (offset: number, day: number = 1) => {
     const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1);
     setCurrentDate(newDate);
-    setSelectedDay(1);
+    setSelectedDay(day);
   };
 
   const changeWeek = (offset: number) => {
@@ -182,6 +212,10 @@ export default function PictocalApp() {
   const handleDayClick = (day: number, type: string) => {
     if (type === 'current') {
       setSelectedDay(day);
+    } else if (type === 'prev') {
+      changeMonth(-1, day);
+    } else if (type === 'next') {
+      changeMonth(1, day);
     }
   };
 
@@ -484,17 +518,28 @@ export default function PictocalApp() {
               {/* CALENDAR */}
               <Panel defaultSize={60} minSize={30} collapsible={false} className="flex flex-col min-h-0">
                 <div className="bg-[#a7f3d0] h-8 flex-none flex items-center justify-between px-2 border-b border-green-600 select-none">
-                  <div className="flex space-x-2">
-                    <button onClick={() => changeMonth(-12)} className="text-green-900 font-bold hover:text-green-700 tracking-[-6px]">◀◀</button>
-                    <button onClick={() => changeMonth(-1)} className="text-green-900 font-bold hover:text-green-700">◀</button>
+                  {/* Previous Year */}
+                  <button onClick={() => changeMonth(-12)} className="px-1 flex items-center justify-center focus:outline-none">
+                    <DoubleChevronLeft />
+                  </button>
+
+                  {/* Month Navigation Group */}
+                  <div className="flex items-center space-x-1">
+                    <button onClick={() => changeMonth(-1)} className="px-1 flex items-center justify-center focus:outline-none">
+                      <ChevronLeft />
+                    </button>
+                    <span className="font-bold text-green-900 truncate px-2 min-w-[140px] text-center text-lg leading-none pt-0.5">
+                      {monthNames[currentMonth]} {currentYear}
+                    </span>
+                    <button onClick={() => changeMonth(1)} className="px-1 flex items-center justify-center focus:outline-none">
+                      <ChevronRight />
+                    </button>
                   </div>
-                  <span className="font-bold text-green-900 truncate px-2">
-                    {monthNames[currentMonth]} {currentYear}
-                  </span>
-                  <div className="flex space-x-2">
-                    <button onClick={() => changeMonth(1)} className="text-green-900 font-bold hover:text-green-700">▶</button>
-                    <button onClick={() => changeMonth(12)} className="text-green-900 font-bold hover:text-green-700 tracking-[-3px]">▶▶</button>
-                  </div>
+
+                  {/* Next Year */}
+                  <button onClick={() => changeMonth(12)} className="px-1 flex items-center justify-center focus:outline-none">
+                    <DoubleChevronRight />
+                  </button>
                 </div>
 
                 <div className="flex-1 w-full bg-[#d1fae5] p-2 flex flex-col min-h-0 select-none overflow-hidden">
@@ -504,17 +549,31 @@ export default function PictocalApp() {
 
                   <div className="flex-1 grid grid-cols-7 grid-rows-6 gap-1 text-center text-sm min-h-0">
                     {calendarCells.map((cell) => {
-                      let hasData = false;
-                      if (cell.type === 'current') {
-                        hasData = !!db[getDateKey(cell.day, currentMonth, currentYear)];
+                      let cellMonth = currentMonth;
+                      let cellYear = currentYear;
+
+                      if (cell.type === 'prev') {
+                        cellMonth = currentMonth - 1;
+                        if (cellMonth < 0) {
+                          cellMonth = 11;
+                          cellYear -= 1;
+                        }
+                      } else if (cell.type === 'next') {
+                        cellMonth = currentMonth + 1;
+                        if (cellMonth > 11) {
+                          cellMonth = 0;
+                          cellYear += 1;
+                        }
                       }
+
+                      const hasData = !!db[getDateKey(cell.day, cellMonth, cellYear)];
                       const isSelected = cell.type === 'current' && selectedDay === cell.day;
 
                       let textColor = 'text-green-800';
                       if (cell.type !== 'current') textColor = 'text-[#7da993]';
 
-                      let cursor = 'cursor-default';
-                      if (cell.type === 'current') cursor = 'cursor-pointer hover:bg-green-200';
+                      // Modified Logic: All cells are clickable now
+                      const cursor = 'cursor-pointer hover:bg-green-200';
 
                       let bgClass = 'border-transparent';
                       if (isSelected) {
