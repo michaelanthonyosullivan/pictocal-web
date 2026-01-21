@@ -232,78 +232,79 @@ export default function PictocalApp() {
 
   // --- FEATURE: SMART BACKUP (SAVE) ---
   const handleExportBackup = async () => {
+    // STANDARDISATION: Warning that file is about to be overwritten
+    // We are now saving to a SINGLE fixed file on the server partition to ensure consistency across Safari/Chrome.
+
+    if (!window.confirm("WARNING: You are about to overwrite the master file 'pictocal_data.json' in your project folder.\n\nThis will permanently update the file on your disk.\n\nDo you want to proceed?")) {
+      return;
+    }
+
     const backupData = {
       db: db,
       customImages: customImages,
       exportDate: new Date().toISOString()
     };
-    const jsonString = JSON.stringify(backupData, null, 2);
 
-    if (fileHandle) {
-      try {
-        const writable = await fileHandle.createWritable();
-        await writable.write(jsonString);
-        await writable.close();
-        alert("Diary Saved!");
-        setIsDirty(false);
-        return;
-      } catch (err) { }
-    }
+    try {
+      const response = await fetch('/api/storage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(backupData),
+      });
 
-    if ('showSaveFilePicker' in window) {
-      try {
-        // @ts-ignore 
-        const handle = await window.showSaveFilePicker({
-          suggestedName: 'pictocal_data.json',
-          types: [{ description: 'Pictocal Data File', accept: { 'application/json': ['.json'] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(jsonString);
-        await writable.close();
-
-        setFileHandle(handle);
+      if (response.ok) {
+        alert("Diary Saved to Project Folder!");
         setIsDirty(false);
-        alert("Diary Saved!");
-      } catch (err: any) { if (err.name === 'AbortError') return; }
-    } else {
-      try {
-        const blob = new Blob([jsonString], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "pictocal_data.json";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        setIsDirty(false);
-      } catch (e) {
-        alert("Failed to save diary file.");
+      } else {
+        alert("Server Error: Failed to save file.");
       }
+    } catch (error) {
+      alert("Network Error: Could not reach local server.");
     }
   };
 
   // --- FEATURE: SMART LOAD (OPEN) ---
   const handleImportClick = async () => {
-    if ('showOpenFilePicker' in window) {
-      try {
-        // @ts-ignore
-        const [handle] = await window.showOpenFilePicker({
-          types: [{ description: 'Pictocal Data File', accept: { 'application/json': ['.json'] } }],
-          multiple: false
-        });
-
-        const file = await handle.getFile();
-        const text = await file.text();
-        processLoadedData(text);
-
-        setFileHandle(handle);
-        return;
-      } catch (err: any) {
-        if (err.name === 'AbortError') return;
-      }
+    // STANDARDISATION: Explicit overwrite warning
+    if (!window.confirm("WARNING: Loading from the master 'pictocal_data.json' will OVERWRITE all current data in this window.\n\nDo you want to proceed?")) {
+      return;
     }
-    fileInputRef.current?.click();
+
+    try {
+      const response = await fetch('/api/storage');
+
+      if (response.status === 404) {
+        alert("No saved file found in project folder.");
+        return;
+      }
+
+      if (!response.ok) {
+        alert("Server Error: Failed to load file.");
+        return;
+      }
+
+      const json = await response.json();
+
+      // Verification
+      if (json.db) {
+        const loadedImages = json.customImages || {};
+        setDb(json.db);
+        setCustomImages(loadedImages);
+        localStorage.setItem('pictocal_data', JSON.stringify(json.db));
+        localStorage.setItem('pictocal_custom_images', JSON.stringify(loadedImages));
+        const currentMonthIdx = currentDate.getMonth();
+        const img = loadedImages[currentMonthIdx] || DEFAULT_IMAGES[currentMonthIdx];
+        setImageSrc(img);
+
+        alert("Diary Loaded Successfully!");
+        setIsDirty(false);
+        setHasLoaded(true);
+      } else {
+        alert("Invalid file format.");
+      }
+    } catch (error) {
+      alert("Network Error: Could not connect to local server.");
+    }
   };
 
   const processLoadedData = (jsonString: string) => {
@@ -628,7 +629,12 @@ export default function PictocalApp() {
                   </div>
                 </div>
 
-                <textarea value={noteText} onChange={handleTextChange} className="flex-1 w-full bg-[#bfdbfe] p-2 text-sm text-gray-900 resize-none outline-none font-medium min-h-0 placeholder-gray-500/50" placeholder="No notes for this day..." />
+                <textarea
+                  value={noteText}
+                  onChange={handleTextChange}
+                  className={`flex-1 w-full bg-[#bfdbfe] p-2 text-sm resize-none outline-none min-h-0 placeholder-gray-500/50 ${noteText !== savedText ? 'text-gray-500 italic' : 'text-gray-900 font-medium'}`}
+                  placeholder="No notes for this day..."
+                />
               </Panel>
 
             </PanelGroup>
