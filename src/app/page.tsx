@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { signIn, signOut, useSession } from "next-auth/react";
+import imageCompression from 'browser-image-compression';
 
 // --- CONFIGURATION ---
 
@@ -16,9 +18,8 @@ const DEFAULT_IMAGES = [
   "/Sep.jpg", "/Oct.jpg", "/Nov.jpg", "/Dec.jpg"
 ];
 
-// --- HELPER FUNCTIONS (STRICT TYPES ADDED) ---
+// --- HELPER FUNCTIONS ---
 
-// THIS IS THE FIX: Added ": number" to parameters
 const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
 
 const getFirstDayOfMonth = (year: number, month: number) => {
@@ -43,7 +44,6 @@ const getWeekNumber = (d: Date) => {
 };
 
 // --- ICONS (SVG) ---
-// --- ICONS (SVG) ---
 const ChevronLeft = () => (
   <svg viewBox="0 0 24 24" fill="none" className="w-5 h-5 text-green-900 hover:text-green-700">
     <path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -58,7 +58,6 @@ const ChevronRight = () => (
 
 const DoubleChevronLeft = () => (
   <svg viewBox="0 0 24 24" fill="none" className="w-6 h-6 text-green-900 hover:text-green-700">
-    {/* Adjusted for lighter stroke to look 'touching' */}
     <path d="M18.5 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
     <path d="M11.5 6l-6 6 6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
@@ -75,6 +74,7 @@ const DoubleChevronRight = () => (
 
 export default function PictocalApp() {
   // --- STATE ---
+  const { data: session, status } = useSession();
   const [currentDate, setCurrentDate] = useState(new Date());
 
   const [selectedDay, setSelectedDay] = useState(new Date().getDate());
@@ -89,7 +89,7 @@ export default function PictocalApp() {
 
   const [isDirty, setIsDirty] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
-  const [fileHandle, setFileHandle] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -135,30 +135,42 @@ export default function PictocalApp() {
   // --- INITIALIZATION ---
   useEffect(() => {
     document.title = "Pictocal Calendar & Diary";
-
-    const savedData = localStorage.getItem('pictocal_data');
-    if (savedData) setDb(JSON.parse(savedData));
-
-    const savedImages = localStorage.getItem('pictocal_custom_images');
-    let loadedCustomImages = {};
-    if (savedImages) {
-      try {
-        loadedCustomImages = JSON.parse(savedImages);
-        setCustomImages(loadedCustomImages);
-      } catch (e) {
-        console.error("Failed to load images", e);
-      }
-    }
-
+    // Initialize default image
     const startMonth = new Date().getMonth();
-    // @ts-ignore
-    const startImage = loadedCustomImages[startMonth] || DEFAULT_IMAGES[startMonth];
-    setImageSrc(startImage);
-
-    setIsDirty(false);
-    setHasLoaded(false);
-
+    setImageSrc(DEFAULT_IMAGES[startMonth]);
   }, []);
+
+  // --- AUTO-FETCH LOGIC (Step 4) ---
+  const loadData = useCallback(async () => {
+    if (status !== "authenticated") return;
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/storage');
+
+      if (response.ok) {
+        const json = await response.json();
+        if (json.db) {
+          setDb(json.db);
+          if (json.customImages) {
+            setCustomImages(json.customImages);
+          }
+          setHasLoaded(true);
+          setIsDirty(false);
+        }
+      }
+    } catch (error) {
+      console.error("Auto-fetch error:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [status]);
+
+  useEffect(() => {
+    if (status === "authenticated" && !hasLoaded) {
+      loadData();
+    }
+  }, [status, hasLoaded, loadData]);
 
   // --- LOGIC: Switch Image ---
   useEffect(() => {
@@ -170,7 +182,7 @@ export default function PictocalApp() {
     }
   }, [currentMonth, customImages]);
 
-  // --- LOGIC: Load Data ---
+  // --- LOGIC: Load Date Data ---
   useEffect(() => {
     const key = getDateKey(selectedDay, currentMonth, currentYear);
     const existingNote = db[key];
@@ -185,16 +197,6 @@ export default function PictocalApp() {
   }, [selectedDay, currentMonth, currentYear, db]);
 
   // --- HANDLERS ---
-
-  const saveToStorage = (newDb: Record<string, string>) => {
-    setDb(newDb);
-    try {
-      localStorage.setItem('pictocal_data', JSON.stringify(newDb));
-      setIsDirty(true);
-    } catch (e) {
-      alert("Storage full! Could not save note.");
-    }
-  };
 
   const changeMonth = (offset: number, day: number = 1) => {
     const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1);
@@ -232,17 +234,14 @@ export default function PictocalApp() {
 
   // --- FEATURE: SMART BACKUP (SAVE) ---
   const handleExportBackup = async () => {
-    // STANDARDISATION: Warning that file is about to be overwritten
-    // We are now saving to a SINGLE fixed file on the server partition to ensure consistency across Safari/Chrome.
-
-    if (!window.confirm("WARNING: You are about to overwrite the master file 'pictocal_data.json' in your project folder.\n\nThis will permanently update the file on your disk.\n\nDo you want to proceed?")) {
+    if (status !== "authenticated") {
+      alert("Please login to save.");
       return;
     }
 
     const backupData = {
-      db: db,
-      customImages: customImages,
-      exportDate: new Date().toISOString()
+      db: db, // Contains pending changes
+      customImages: customImages // Contains image URLs
     };
 
     try {
@@ -253,90 +252,14 @@ export default function PictocalApp() {
       });
 
       if (response.ok) {
-        alert("Diary Saved to Project Folder!");
+        alert("Diary Saved Successfully!");
         setIsDirty(false);
       } else {
         alert("Server Error: Failed to save file.");
       }
     } catch (error) {
-      alert("Network Error: Could not reach local server.");
+      alert("Network Error: Could not reach server.");
     }
-  };
-
-  // --- FEATURE: SMART LOAD (OPEN) ---
-  const handleImportClick = async () => {
-    // STANDARDISATION: Explicit overwrite warning
-    if (!window.confirm("WARNING: Loading from the master 'pictocal_data.json' will OVERWRITE all current data in this window.\n\nDo you want to proceed?")) {
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/storage');
-
-      if (response.status === 404) {
-        alert("No saved file found in project folder.");
-        return;
-      }
-
-      if (!response.ok) {
-        alert("Server Error: Failed to load file.");
-        return;
-      }
-
-      const json = await response.json();
-
-      // Verification
-      if (json.db) {
-        const loadedImages = json.customImages || {};
-        setDb(json.db);
-        setCustomImages(loadedImages);
-        localStorage.setItem('pictocal_data', JSON.stringify(json.db));
-        localStorage.setItem('pictocal_custom_images', JSON.stringify(loadedImages));
-        const currentMonthIdx = currentDate.getMonth();
-        const img = loadedImages[currentMonthIdx] || DEFAULT_IMAGES[currentMonthIdx];
-        setImageSrc(img);
-
-        alert("Diary Loaded Successfully!");
-        setIsDirty(false);
-        setHasLoaded(true);
-      } else {
-        alert("Invalid file format.");
-      }
-    } catch (error) {
-      alert("Network Error: Could not connect to local server.");
-    }
-  };
-
-  const processLoadedData = (jsonString: string) => {
-    try {
-      const json = JSON.parse(jsonString);
-      if (json.db) {
-        const loadedImages = json.customImages || {};
-        if (window.confirm(`Load diary from ${new Date(json.exportDate).toLocaleDateString()}?\nThis will overwrite current data.`)) {
-          setDb(json.db);
-          setCustomImages(loadedImages);
-          localStorage.setItem('pictocal_data', JSON.stringify(json.db));
-          localStorage.setItem('pictocal_custom_images', JSON.stringify(loadedImages));
-          const currentMonthIdx = currentDate.getMonth();
-          const img = loadedImages[currentMonthIdx] || DEFAULT_IMAGES[currentMonthIdx];
-          setImageSrc(img);
-          alert("Diary loaded!");
-          setIsDirty(false);
-          setHasLoaded(true);
-        }
-      } else { alert("Invalid diary file."); }
-    } catch (err) { alert("Error reading file."); }
-  };
-
-  const handleFallbackFileLoad = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (e.target?.result) processLoadedData(e.target.result as string);
-    };
-    reader.readAsText(file);
-    event.target.value = '';
   };
 
   // --- FEATURE: MAKE PDF ---
@@ -359,12 +282,17 @@ export default function PictocalApp() {
     } catch (error) { alert("Failed to generate PDF."); }
   };
 
-  // --- BUTTON LOGIC ---
+  // --- BUTTON LOGIC (LOCAL STATE UPDATE) ---
+  const updateLocalState = (newDb: Record<string, string>) => {
+    setDb(newDb);
+    setIsDirty(true); // Mark as dirty so user knows to Save
+  }
+
   const handleAdd = () => {
     if (noteText.trim() !== "") {
       const key = getDateKey(selectedDay, currentMonth, currentYear);
       const newDb = { ...db, [key]: noteText };
-      saveToStorage(newDb);
+      updateLocalState(newDb);
     }
   };
 
@@ -372,64 +300,66 @@ export default function PictocalApp() {
     const key = getDateKey(selectedDay, currentMonth, currentYear);
     if (noteText.trim() !== "") {
       const newDb = { ...db, [key]: noteText };
-      saveToStorage(newDb);
+      updateLocalState(newDb);
     } else { handleDelete(); }
   };
 
   const handleDelete = () => {
-    if (window.confirm("Delete Record? Are you sure?")) {
+    if (window.confirm("Delete Record?")) {
       const key = getDateKey(selectedDay, currentMonth, currentYear);
       const newDb = { ...db };
       delete newDb[key];
-      saveToStorage(newDb);
+      updateLocalState(newDb);
       setNoteText("");
     }
   };
 
-  // --- DRAG & DROP ---
+  // --- DRAG & DROP (IMAGE UPLOAD) ---
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDraggingFile(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDraggingFile(false); };
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingFile(false);
+
+    if (status !== "authenticated") {
+      alert("Please login to upload images.");
+      return;
+    }
+
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = (readerEvent) => {
-          if (readerEvent.target?.result) {
-            const img = new Image();
-            img.src = readerEvent.target.result as string;
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const ctx = canvas.getContext('2d');
-              const MAX_WIDTH = 1024;
-              let width = img.width;
-              let height = img.height;
-              if (width > MAX_WIDTH) {
-                height *= MAX_WIDTH / width;
-                width = MAX_WIDTH;
-              }
-              canvas.width = width;
-              canvas.height = height;
-              ctx?.drawImage(img, 0, 0, width, height);
-              const compressedData = canvas.toDataURL('image/jpeg', 0.7);
-              setImageSrc(compressedData);
-              setCustomImages(prev => {
-                const updated = { ...prev, [currentMonth]: compressedData };
-                try {
-                  localStorage.setItem('pictocal_custom_images', JSON.stringify(updated));
-                  setIsDirty(true);
-                } catch (err) { alert("Warning: Browser storage is full."); }
-                return updated;
-              });
-            };
-          }
-        };
-        reader.readAsDataURL(file);
+        try {
+          // Compress Image
+          const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1920, useWebWorker: true };
+          const compressedFile = await imageCompression(file, options);
+
+          // Upload to Vercel Blob
+          const response = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}`, {
+            method: 'POST',
+            body: compressedFile,
+          });
+
+          if (!response.ok) throw new Error('Upload failed');
+
+          const blob = await response.json();
+          const url = blob.url;
+
+          // Update State
+          setImageSrc(url);
+          setCustomImages(prev => {
+            const updated = { ...prev, [currentMonth]: url };
+            setIsDirty(true);
+            return updated;
+          });
+
+        } catch (error) {
+          console.error(error);
+          alert("Failed to upload image.");
+        }
       } else { alert("Please drop an image file."); }
     }
-  }, [currentMonth]);
+  }, [currentMonth, status]);
 
   const savedText = db[getDateKey(selectedDay, currentMonth, currentYear)] || "";
   const isAddEnabled = !recordFound && noteText.trim().length > 0;
@@ -456,23 +386,25 @@ export default function PictocalApp() {
             Data Page
           </div>
         </div>
-        <div className="flex space-x-2 pb-1">
-          <input type="file" ref={fileInputRef} onChange={handleFallbackFileLoad} className="hidden" accept=".json" />
+        <div className="flex space-x-2 pb-1 items-center">
 
-          <button
-            onClick={handleImportClick}
-            disabled={hasLoaded && !isDirty}
-            className={loadSaveBtnClass(!hasLoaded || isDirty, 'yellow')}
-          >
-            Load Diary
-          </button>
+          {status === "loading" ? (
+            <span className="text-white text-xs">Loading...</span>
+          ) : status === "authenticated" ? (
+            <>
+              <span className="text-white text-xs mr-2">Hello, {session.user?.email}</span>
+              <button onClick={() => signOut()} className="bg-red-600 text-white text-[10px] px-2 py-1 rounded font-bold hover:bg-red-500">Sign Out</button>
+            </>
+          ) : (
+            <button onClick={() => signIn()} className="bg-blue-600 text-white text-[10px] px-2 py-1 rounded font-bold hover:bg-blue-500">Sign In</button>
+          )}
 
           <button
             onClick={handleExportBackup}
-            disabled={!isDirty}
-            className={loadSaveBtnClass(isDirty, 'green')}
+            disabled={!isDirty || status !== "authenticated"}
+            className={loadSaveBtnClass(isDirty && status === "authenticated", 'green')}
           >
-            Save Diary
+            {isDirty ? "Save Changes" : "Saved"}
           </button>
         </div>
       </div>
@@ -490,7 +422,7 @@ export default function PictocalApp() {
               <img src={imageSrc} alt="Landscape" className="w-full h-full object-contain select-none block" onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/800x600?text=Image+Not+Found"; }} />
               {isDraggingFile && (
                 <div className="absolute inset-0 flex items-center justify-center bg-blue-500/20 border-4 border-blue-400 border-dashed z-50">
-                  <span className="text-white font-bold text-xl bg-black/50 px-4 py-2 rounded">Drop Image Here</span>
+                  <span className="text-white font-bold text-xl bg-black/50 px-4 py-2 rounded">Drop Image to Upload</span>
                 </div>
               )}
             </div>
@@ -573,7 +505,6 @@ export default function PictocalApp() {
                       let textColor = 'text-green-800';
                       if (cell.type !== 'current') textColor = 'text-[#7da993]';
 
-                      // Modified Logic: All cells are clickable now
                       const cursor = 'cursor-pointer hover:bg-green-200';
 
                       let bgClass = 'border-transparent';

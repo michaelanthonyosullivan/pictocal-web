@@ -1,0 +1,16 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model DiaryEntry {
+  id        String   @id @default(uuid())
+  ownerEmail String
+  entryDate DateTime
+  content   String
+  imageUrl  String?
+}
