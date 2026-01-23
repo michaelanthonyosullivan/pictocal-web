@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "@/app/api/auth/[...nextauth]/route";
+// CORRECTION: Pointing to your actual auth file
+import { authOptions } from "@/lib/auth"; 
 import prisma from "@/lib/prisma";
 
 export async function GET(request, { params }) {
@@ -10,7 +11,7 @@ export async function GET(request, { params }) {
 	  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
-	const { date } = params;
+	const { date } = await params;
 	const absoluteDate = new Date(`${date}T00:00:00.000Z`);
 
 	const entry = await prisma.diaryEntry.findUnique({
@@ -36,7 +37,7 @@ export async function POST(request, { params }) {
 	  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
-	const { date } = params;
+	const { date } = await params;
 	const body = await request.json();
 	
 	const absoluteDate = new Date(`${date}T00:00:00.000Z`);
