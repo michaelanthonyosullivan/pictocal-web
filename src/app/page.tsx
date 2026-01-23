@@ -337,8 +337,8 @@ export default function PictocalApp() {
       const file = e.dataTransfer.files[0];
       if (file.type.startsWith('image/')) {
         try {
-          // Compress Image
-          const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1920, useWebWorker: true };
+          // Compress Image (Now set to high quality 3MB / 4K limit)
+          const options = { maxSizeMB: 3, maxWidthOrHeight: 3840, useWebWorker: true, initialQuality: 1 };
           const compressedFile = await imageCompression(file, options);
 
           // Upload to Vercel Blob
