@@ -346,7 +346,8 @@ export default function PictocalApp() {
           });
 
           // 2. ANCHOR IMAGE TO THE 1ST OF THE MONTH (Auto-Save)
-          const monthAnchorDate = new Date(currentYear, currentMonth, 1);
+          // NEW LINE (Forcing absolute UTC time):
+          const monthAnchorDate = new Date(Date.UTC(currentYear, currentMonth, 1));
           const monthAnchorKey = getDateKey(1, currentMonth, currentYear);
 
           await fetch('/api/storage', {
