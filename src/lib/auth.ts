@@ -6,17 +6,26 @@ export const authOptions: NextAuthOptions = {
         CredentialsProvider({
             name: 'Credentials',
             credentials: {
-                email: { label: "Email", type: "text", placeholder: "user@example.com" },
+                email: { label: "Email", type: "text", placeholder: "your-email@example.com" },
                 password: { label: "Password", type: "password" }
             },
             async authorize(credentials, req) {
-                // Simple mock logic for demonstration/migration purpose
-                // Accept any email, password is effectively ignored/optional for migration ease
-                // In production, validate password here.
-                if (credentials?.email) {
-                    return { id: "1", name: "User", email: credentials.email }
+                if (!credentials?.email || !credentials?.password) return null;
+            
+                // Check User 1 (Admin)
+                if (credentials.email === process.env.ADMIN_EMAIL && 
+                    credentials.password === process.env.ADMIN_PASSWORD) {
+                    return { id: "1", name: "Michael", email: credentials.email };
                 }
-                return null
+            
+                // Check User 2 (Guest)
+                if (credentials.email === process.env.GUEST_EMAIL && 
+                    credentials.password === process.env.GUEST_PASSWORD) {
+                    return { id: "2", name: "Guest", email: credentials.email };
+                }
+            
+                // If neither matches, reject login
+                return null;
             }
         })
     ],

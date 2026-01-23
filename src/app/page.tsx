@@ -239,16 +239,23 @@ export default function PictocalApp() {
       return;
     }
 
-    const backupData = {
-      db: db, // Contains pending changes
-      customImages: customImages // Contains image URLs
+    // 1. Get the exact date the user is currently looking at
+    const dateKey = getDateKey(selectedDay, currentMonth, currentYear);
+    const actualDate = new Date(currentYear, currentMonth, selectedDay);
+
+    // 2. Package the exact data the backend is looking for
+    const dataToSave = {
+      entryDate: actualDate.toISOString(),
+      content: db[dateKey] || "",
+      imageUrl: customImages[currentMonth] || DEFAULT_IMAGES[currentMonth]
     };
 
     try {
+      // 3. Send it to our new storage route
       const response = await fetch('/api/storage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(backupData),
+        body: JSON.stringify(dataToSave),
       });
 
       if (response.ok) {
