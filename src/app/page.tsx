@@ -140,7 +140,7 @@ export default function PictocalApp() {
     setImageSrc(DEFAULT_IMAGES[startMonth]);
   }, []);
 
-  // --- AUTO-FETCH LOGIC (Step 4) ---
+  // --- AUTO-FETCH LOGIC ---
   const loadData = useCallback(async () => {
     if (status !== "authenticated") return;
 
@@ -251,7 +251,7 @@ export default function PictocalApp() {
     };
 
     try {
-      // 3. Send it to our new storage route
+      // 3. Send it to our storage route
       const response = await fetch('/api/storage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -321,9 +321,10 @@ export default function PictocalApp() {
     }
   };
 
-  // --- DRAG & DROP (IMAGE UPLOAD) ---
+  // --- DRAG & DROP (IMAGE UPLOAD + AUTO-SAVE) ---
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDraggingFile(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDraggingFile(false); };
+  
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
     setIsDraggingFile(false);
@@ -337,7 +338,7 @@ export default function PictocalApp() {
       const file = e.dataTransfer.files[0];
       if (file.type.startsWith('image/')) {
         try {
-          // Compress Image (Now set to high quality 3MB / 4K limit)
+          // Compress Image (High quality)
           const options = { maxSizeMB: 3, maxWidthOrHeight: 3840, useWebWorker: true, initialQuality: 1 };
           const compressedFile = await imageCompression(file, options);
 
@@ -352,12 +353,25 @@ export default function PictocalApp() {
           const blob = await response.json();
           const url = blob.url;
 
-          // Update State
+          // 1. Update State (Screen)
           setImageSrc(url);
           setCustomImages(prev => {
-            const updated = { ...prev, [currentMonth]: url };
-            setIsDirty(true);
-            return updated;
+            return { ...prev, [currentMonth]: url };
+          });
+
+          // 2. NEW: AUTO-SAVE TO DATABASE
+          // We lock in the exact date data for the month we are currently viewing
+          const actualDate = new Date(currentYear, currentMonth, selectedDay);
+          const dateKey = getDateKey(selectedDay, currentMonth, currentYear);
+
+          await fetch('/api/storage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              entryDate: actualDate.toISOString(),
+              content: db[dateKey] || "",
+              imageUrl: url // Force the DB to save this exact URL
+            }),
           });
 
         } catch (error) {
@@ -366,7 +380,7 @@ export default function PictocalApp() {
         }
       } else { alert("Please drop an image file."); }
     }
-  }, [currentMonth, status]);
+  }, [currentMonth, currentYear, selectedDay, status, db]);
 
   const savedText = db[getDateKey(selectedDay, currentMonth, currentYear)] || "";
   const isAddEnabled = !recordFound && noteText.trim().length > 0;
