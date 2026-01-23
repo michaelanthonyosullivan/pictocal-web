@@ -3,8 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/app/api/auth/[...nextauth]/route";
 import prisma from "@/lib/prisma";
 
-// LOAD DATA: Ensure we fetch the exact calendar day
-export async function GET(request: Request, { params }: { params: { date: string } }) {
+export async function GET(request, { params }) {
   try {
 	const session = await getServerSession(authOptions);
 	if (!session?.user?.email) {
@@ -12,7 +11,6 @@ export async function GET(request: Request, { params }: { params: { date: string
 	}
 
 	const { date } = params;
-	// Force UTC midnight
 	const absoluteDate = new Date(`${date}T00:00:00.000Z`);
 
 	const entry = await prisma.diaryEntry.findUnique({
@@ -31,8 +29,7 @@ export async function GET(request: Request, { params }: { params: { date: string
   }
 }
 
-// SAVE DATA: Ensure we save to the exact calendar day
-export async function POST(request: Request, { params }: { params: { date: string } }) {
+export async function POST(request, { params }) {
   try {
 	const session = await getServerSession(authOptions);
 	if (!session?.user?.email) {
@@ -42,7 +39,6 @@ export async function POST(request: Request, { params }: { params: { date: strin
 	const { date } = params;
 	const body = await request.json();
 	
-	// Force UTC midnight
 	const absoluteDate = new Date(`${date}T00:00:00.000Z`);
 
 	const updatedEntry = await prisma.diaryEntry.upsert({
