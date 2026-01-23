@@ -87,7 +87,6 @@ export default function PictocalApp() {
   const [customImages, setCustomImages] = useState<Record<number, string>>({});
   const [isDraggingFile, setIsDraggingFile] = useState(false);
 
-  const [isDirty, setIsDirty] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -157,7 +156,6 @@ export default function PictocalApp() {
             setCustomImages(json.customImages);
           }
           setHasLoaded(true);
-          setIsDirty(false);
         }
       }
     } catch (error) {
@@ -224,50 +222,12 @@ export default function PictocalApp() {
 
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setNoteText(e.target.value);
-    setIsDirty(true);
   };
 
   const goToToday = () => {
     const today = new Date();
     setCurrentDate(today);
     setSelectedDay(today.getDate());
-  };
-
-  // --- FEATURE: SMART BACKUP (SAVE TEXT NOTES) ---
-  const handleExportBackup = async () => {
-    if (status !== "authenticated") {
-      alert("Please login to save.");
-      return;
-    }
-
-    // 1. Get the exact date the user is currently looking at
-    const dateKey = getDateKey(selectedDay, currentMonth, currentYear);
-    const actualDate = new Date(currentYear, currentMonth, selectedDay);
-
-    // 2. Package the text data (we DO NOT update the image here to avoid overwrites)
-    const dataToSave = {
-      entryDate: actualDate.toISOString(),
-      content: db[dateKey] || "",
-      imageUrl: customImages[currentMonth] || DEFAULT_IMAGES[currentMonth]
-    };
-
-    try {
-      // 3. Send it to our storage route
-      const response = await fetch('/api/storage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dataToSave),
-      });
-
-      if (response.ok) {
-        alert("Diary Saved Successfully!");
-        setIsDirty(false);
-      } else {
-        alert("Server Error: Failed to save file.");
-      }
-    } catch (error) {
-      alert("Network Error: Could not reach server.");
-    }
   };
 
   // --- FEATURE: MAKE PDF ---
@@ -290,35 +250,60 @@ export default function PictocalApp() {
     } catch (error) { alert("Failed to generate PDF."); }
   };
 
-  // --- BUTTON LOGIC (LOCAL STATE UPDATE) ---
-  const updateLocalState = (newDb: Record<string, string>) => {
-    setDb(newDb);
-    setIsDirty(true); // Mark as dirty so user knows to Save
-  }
-
-  const handleAdd = () => {
-    if (noteText.trim() !== "") {
-      const key = getDateKey(selectedDay, currentMonth, currentYear);
-      const newDb = { ...db, [key]: noteText };
-      updateLocalState(newDb);
+  // --- AUTO-SAVE HELPER FOR TEXT ENTRIES ---
+  const saveTextToDatabase = async (content: string) => {
+    if (status !== "authenticated") return;
+    const actualDate = new Date(currentYear, currentMonth, selectedDay);
+    
+    try {
+      await fetch('/api/storage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          entryDate: actualDate.toISOString(),
+          content: content,
+          // Always send the current month's image so DB doesn't blank it out on the 1st
+          imageUrl: customImages[currentMonth] || DEFAULT_IMAGES[currentMonth] 
+        }),
+      });
+    } catch (error) {
+      console.error("Auto-save failed", error);
+      alert("Network Error: Could not save to server.");
     }
   };
 
-  const handleConfirm = () => {
+  // --- BUTTON LOGIC (NOW WITH AUTO-SAVE) ---
+
+  const handleAdd = async () => {
+    if (noteText.trim() !== "") {
+      const key = getDateKey(selectedDay, currentMonth, currentYear);
+      // 1. Update UI Instantly
+      setDb({ ...db, [key]: noteText });
+      // 2. Auto-Save to DB
+      await saveTextToDatabase(noteText);
+    }
+  };
+
+  const handleConfirm = async () => {
     const key = getDateKey(selectedDay, currentMonth, currentYear);
     if (noteText.trim() !== "") {
-      const newDb = { ...db, [key]: noteText };
-      updateLocalState(newDb);
+      // 1. Update UI Instantly
+      setDb({ ...db, [key]: noteText });
+      // 2. Auto-Save to DB
+      await saveTextToDatabase(noteText);
     } else { handleDelete(); }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (window.confirm("Delete Record?")) {
       const key = getDateKey(selectedDay, currentMonth, currentYear);
+      // 1. Update UI Instantly
       const newDb = { ...db };
       delete newDb[key];
-      updateLocalState(newDb);
+      setDb(newDb);
       setNoteText("");
+      // 2. Auto-Save to DB (Saving empty string deletes it on the backend)
+      await saveTextToDatabase("");
     }
   };
 
@@ -360,8 +345,7 @@ export default function PictocalApp() {
             return { ...prev, [currentMonth]: url };
           });
 
-          // 2. NEW: ANCHOR IMAGE TO THE 1ST OF THE MONTH
-          // This forces the DB to save exactly 12 images per year, safely ignoring the selected text day.
+          // 2. ANCHOR IMAGE TO THE 1ST OF THE MONTH (Auto-Save)
           const monthAnchorDate = new Date(currentYear, currentMonth, 1);
           const monthAnchorKey = getDateKey(1, currentMonth, currentYear);
 
@@ -370,8 +354,8 @@ export default function PictocalApp() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               entryDate: monthAnchorDate.toISOString(),
-              content: db[monthAnchorKey] || "", // Preserve whatever text exists on the 1st
-              imageUrl: url // Hard lock this image to this month
+              content: db[monthAnchorKey] || "", 
+              imageUrl: url 
             }),
           });
 
@@ -388,17 +372,10 @@ export default function PictocalApp() {
   const isConfirmEnabled = recordFound && noteText.trim().length > 0 && noteText !== savedText;
   const isDeleteEnabled = recordFound;
 
-  const loadSaveBtnClass = (active: boolean, color: string) => `
-    text-[10px] px-2 py-1 rounded font-bold shadow-md border transition-colors
-    ${active
-      ? `${color === 'yellow' ? 'bg-yellow-600 hover:bg-yellow-500 border-yellow-700' : 'bg-green-600 hover:bg-green-500 border-green-700'} text-white cursor-pointer`
-      : 'bg-gray-400 text-gray-200 border-gray-500 cursor-not-allowed'}
-  `;
-
   return (
     <div className="h-screen w-full bg-[#1a365d] flex flex-col p-2 overflow-hidden font-sans box-border">
 
-      {/* HEADER TABS & BACKUP CONTROLS */}
+      {/* HEADER TABS & AUTH CONTROLS */}
       <div className="h-8 flex-none w-full flex items-end justify-between px-4 mb-0 z-10">
         <div className="flex items-end space-x-1">
           <div className="bg-white px-6 py-1 rounded-t-lg text-sm font-bold text-gray-800 shadow-sm cursor-pointer border-t border-l border-r border-gray-400 relative top-[1px]">
@@ -421,13 +398,7 @@ export default function PictocalApp() {
             <button onClick={() => signIn()} className="bg-blue-600 text-white text-[10px] px-2 py-1 rounded font-bold hover:bg-blue-500">Sign In</button>
           )}
 
-          <button
-            onClick={handleExportBackup}
-            disabled={!isDirty || status !== "authenticated"}
-            className={loadSaveBtnClass(isDirty && status === "authenticated", 'green')}
-          >
-            {isDirty ? "Save Changes" : "Saved"}
-          </button>
+          {/* NOTE: THE MANUAL SAVE BUTTON HAS BEEN DELETED. ALL SAVING IS NOW AUTOMATIC. */}
         </div>
       </div>
 
