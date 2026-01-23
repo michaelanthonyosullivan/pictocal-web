@@ -146,7 +146,8 @@ export default function PictocalApp() {
 
     setIsLoading(true);
     try {
-      const response = await fetch('/api/storage');
+      // FORCE NO-STORE to ensure fresh images on reload
+      const response = await fetch('/api/storage', { cache: 'no-store' });
 
       if (response.ok) {
         const json = await response.json();
@@ -232,7 +233,7 @@ export default function PictocalApp() {
     setSelectedDay(today.getDate());
   };
 
-  // --- FEATURE: SMART BACKUP (SAVE) ---
+  // --- FEATURE: SMART BACKUP (SAVE TEXT NOTES) ---
   const handleExportBackup = async () => {
     if (status !== "authenticated") {
       alert("Please login to save.");
@@ -243,7 +244,7 @@ export default function PictocalApp() {
     const dateKey = getDateKey(selectedDay, currentMonth, currentYear);
     const actualDate = new Date(currentYear, currentMonth, selectedDay);
 
-    // 2. Package the exact data the backend is looking for
+    // 2. Package the text data (we DO NOT update the image here to avoid overwrites)
     const dataToSave = {
       entryDate: actualDate.toISOString(),
       content: db[dateKey] || "",
@@ -321,7 +322,7 @@ export default function PictocalApp() {
     }
   };
 
-  // --- DRAG & DROP (IMAGE UPLOAD + AUTO-SAVE) ---
+  // --- DRAG & DROP (IMAGE UPLOAD + MONTHLY ANCHOR AUTO-SAVE) ---
   const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDraggingFile(true); };
   const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDraggingFile(false); };
   
@@ -359,18 +360,18 @@ export default function PictocalApp() {
             return { ...prev, [currentMonth]: url };
           });
 
-          // 2. NEW: AUTO-SAVE TO DATABASE
-          // We lock in the exact date data for the month we are currently viewing
-          const actualDate = new Date(currentYear, currentMonth, selectedDay);
-          const dateKey = getDateKey(selectedDay, currentMonth, currentYear);
+          // 2. NEW: ANCHOR IMAGE TO THE 1ST OF THE MONTH
+          // This forces the DB to save exactly 12 images per year, safely ignoring the selected text day.
+          const monthAnchorDate = new Date(currentYear, currentMonth, 1);
+          const monthAnchorKey = getDateKey(1, currentMonth, currentYear);
 
           await fetch('/api/storage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              entryDate: actualDate.toISOString(),
-              content: db[dateKey] || "",
-              imageUrl: url // Force the DB to save this exact URL
+              entryDate: monthAnchorDate.toISOString(),
+              content: db[monthAnchorKey] || "", // Preserve whatever text exists on the 1st
+              imageUrl: url // Hard lock this image to this month
             }),
           });
 
@@ -380,7 +381,7 @@ export default function PictocalApp() {
         }
       } else { alert("Please drop an image file."); }
     }
-  }, [currentMonth, currentYear, selectedDay, status, db]);
+  }, [currentMonth, currentYear, status, db]);
 
   const savedText = db[getDateKey(selectedDay, currentMonth, currentYear)] || "";
   const isAddEnabled = !recordFound && noteText.trim().length > 0;
